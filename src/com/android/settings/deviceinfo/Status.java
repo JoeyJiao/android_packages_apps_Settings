@@ -404,6 +404,16 @@ public class Status extends PreferenceActivity {
 
         Preference wifiMacAddressPref = findPreference(KEY_WIFI_MAC_ADDRESS);
         String macAddress = wifiInfo == null ? null : wifiInfo.getMacAddress();
+			if(macAddress!=null && macAddress.length()==12 && !macAddress.contains(".")){
+				macAddress=macAddress.substring(0,2)+":"
+					+macAddress.substring(2,4)+":"
+					+macAddress.substring(4,6)+":"
+					+macAddress.substring(6,8)+":"
+					+macAddress.substring(8,10)+":"
+					+macAddress.substring(10,12);
+			}else if(macAddress!=null && macAddress.contains(".")){
+				macAddress=macAddress.replaceAll("\\.",":");
+			}
         wifiMacAddressPref.setSummary(!TextUtils.isEmpty(macAddress) ? macAddress 
                 : getString(R.string.status_unavailable));
     }

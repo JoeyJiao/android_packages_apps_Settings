@@ -19,10 +19,19 @@ public class TestingSettingsBroadcastReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent.getAction().equals(SECRET_CODE_ACTION)) {
-            Intent i = new Intent(Intent.ACTION_MAIN);
-            i.setClass(context, TestingSettings.class);
-            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(i);
+        	if(intent.getData()==null)
+        		return;
+        	String host=intent.getData().getHost();
+        	Intent i = new Intent(Intent.ACTION_MAIN);
+        	if("4636".equals(host)){
+	            i.setClass(context, TestingSettings.class);
+	            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+	            context.startActivity(i);
+        	}else if("2846579".equals(host)){
+        		i.setClass(context, TestingSettingsHW.class);
+        		i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+	            context.startActivity(i);
+        	}
         }
     }
 }

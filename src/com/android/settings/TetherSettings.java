@@ -16,6 +16,10 @@
 
 package com.android.settings;
 
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import com.android.settings.wifi.WifiApEnabler;
 
 import android.app.AlertDialog;
@@ -165,8 +169,43 @@ public class TetherSettings extends PreferenceActivity {
             } else if (intent.getAction().equals(Intent.ACTION_MEDIA_SHARED) ||
                        intent.getAction().equals(Intent.ACTION_MEDIA_UNSHARED)) {
                 updateState();
+            } else if (intent.getAction().equals(Intent.ACTION_POWER_CONNECTED)){
+            	if(isUsbConnected()){
+            		switchusb(false);
+            		switchTether(false);
+            		mUsbTether.setEnabled(true);
+            		mUsbTether.setChecked(false);
+            	}
+            } else if (intent.getAction().equals(Intent.ACTION_POWER_DISCONNECTED)){
+            	if(!isUsbConnected()){
+            		/*if(mTetherChangeReceiver!=null){
+            			unregisterReceiver(mTetherChangeReceiver);
+                		mTetherChangeReceiver = null;
+            		}*/
+            		switchusb(false);//change to cdrom mode; actually after usb plug out, it switches to cdrom automatically
+            		switchTether(false);
+            		mUsbTether.setChecked(false);
+            		mUsbTether.setEnabled(false);
+            	}
             }
         }
+    }
+    
+    private boolean isUsbConnected(){
+    	try {
+			FileReader fr = new FileReader("/sys/devices/platform/huawei_battery/power_supply/usb/online");
+			int result=fr.read();
+        	if(result=='1'){//ascii code =49
+        		return true;
+        	}
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    	return false;
     }
 
     @Override
@@ -174,6 +213,10 @@ public class TetherSettings extends PreferenceActivity {
         super.onResume();
 
         IntentFilter filter = new IntentFilter(ConnectivityManager.ACTION_TETHER_STATE_CHANGED);
+        //Add by Joey Jiao start to detect usb connect/disconnect
+        filter.addAction(Intent.ACTION_POWER_CONNECTED);
+        filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
+        //Add by Joey Jiao end
         mTetherChangeReceiver = new TetherChangeReceiver();
         Intent intent = registerReceiver(mTetherChangeReceiver, filter);
 
@@ -190,9 +233,19 @@ public class TetherSettings extends PreferenceActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        unregisterReceiver(mTetherChangeReceiver);
-        mTetherChangeReceiver = null;
+//        unregisterReceiver(mTetherChangeReceiver);
+//        mTetherChangeReceiver = null;
         mWifiApEnabler.pause();
+    }
+    //Add by Joey Jiao
+    @Override
+    protected void onDestroy() {
+    	// TODO Auto-generated method stub
+    	if(!isUsbConnected() && mTetherChangeReceiver!=null){
+    		unregisterReceiver(mTetherChangeReceiver);
+        	mTetherChangeReceiver = null;
+    	}
+    	super.onDestroy();
     }
 
     private void updateState() {
@@ -239,11 +292,11 @@ public class TetherSettings extends PreferenceActivity {
             }
         }
 
-        if (usbTethered) {
+        if (usbTethered && isUsbConnected()) {
             mUsbTether.setSummary(R.string.usb_tethering_active_subtext);
             mUsbTether.setEnabled(true);
             mUsbTether.setChecked(true);
-        } else if (usbAvailable) {
+        } else if (usbAvailable && isUsbConnected()) {//Modified by Joey Jiao
             if (usbError == ConnectivityManager.TETHER_ERROR_NO_ERROR) {
                 mUsbTether.setSummary(R.string.usb_tethering_available_subtext);
             } else {
@@ -255,53 +308,84 @@ public class TetherSettings extends PreferenceActivity {
             mUsbTether.setSummary(R.string.usb_tethering_errored_subtext);
             mUsbTether.setEnabled(false);
             mUsbTether.setChecked(false);
-        } else if (massStorageActive) {
+        } else if (massStorageActive && isUsbConnected()) {
             mUsbTether.setSummary(R.string.usb_tethering_storage_active_subtext);
             mUsbTether.setEnabled(false);
             mUsbTether.setChecked(false);
-        } else {
+        } else if(isUsbConnected()){//add by Joey Jiao
+            mUsbTether.setSummary(R.string.usb_tethering_available_subtext);
+            mUsbTether.setEnabled(true);
+            mUsbTether.setChecked(false);
+        }  else {
             mUsbTether.setSummary(R.string.usb_tethering_unavailable_subtext);
             mUsbTether.setEnabled(false);
             mUsbTether.setChecked(false);
         }
     }
 
+    //Add by Joey Jiao
+    private void switchusb(boolean newState){
+    	//lsusb 1039
+  		//echo ther_unet>/sys/devices/platform/msm_hsusb/gadget/switchusb
+      	//lsusb 1035
+      	//echo cdrom>/sys/devices/platform/msm_hsusb/gadget/switchusb
+  		try {
+  			FileWriter fw=new FileWriter("/sys/devices/platform/msm_hsusb/gadget/switchusb");//rw-rw-rw
+  			if(newState)
+  				fw.write("ther_unet");
+  			else
+  				fw.write("cdrom");
+  			fw.flush();
+  			fw.close();
+  		} catch (IOException e1) {
+  			// TODO Auto-generated catch block
+  			e1.printStackTrace();
+  		}
+    }
+    private boolean switchTether(boolean newState){
+    	ConnectivityManager cm =
+                (ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (newState) {
+            String[] available = cm.getTetherableIfaces();
+            String usbIface = findIface(available, mUsbRegexs);
+            if (usbIface == null) {
+                updateState();
+                return true;
+            }
+            if (cm.tether(usbIface) != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
+                mUsbTether.setChecked(false);
+                mUsbTether.setSummary(R.string.usb_tethering_errored_subtext);
+                return true;
+            }
+            mUsbTether.setSummary("");
+        } else {
+            String [] tethered = cm.getTetheredIfaces();
+            String usbIface = findIface(tethered, mUsbRegexs);
+            if (usbIface == null) {
+                updateState();
+                return true;
+            }
+
+            if (cm.untether(usbIface) != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
+                mUsbTether.setSummary(R.string.usb_tethering_errored_subtext);
+                return true;
+            }
+            mUsbTether.setSummary("");
+        }
+        return false;
+    }
     @Override
     public boolean onPreferenceTreeClick(PreferenceScreen preferenceScreen, Preference preference) {
         if (preference == mUsbTether) {
             boolean newState = mUsbTether.isChecked();
-
-            ConnectivityManager cm =
-                    (ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
-
-            if (newState) {
-                String[] available = cm.getTetherableIfaces();
-
-                String usbIface = findIface(available, mUsbRegexs);
-                if (usbIface == null) {
-                    updateState();
-                    return true;
-                }
-                if (cm.tether(usbIface) != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
-                    mUsbTether.setChecked(false);
-                    mUsbTether.setSummary(R.string.usb_tethering_errored_subtext);
-                    return true;
-                }
-                mUsbTether.setSummary("");
-            } else {
-                String [] tethered = cm.getTetheredIfaces();
-
-                String usbIface = findIface(tethered, mUsbRegexs);
-                if (usbIface == null) {
-                    updateState();
-                    return true;
-                }
-                if (cm.untether(usbIface) != ConnectivityManager.TETHER_ERROR_NO_ERROR) {
-                    mUsbTether.setSummary(R.string.usb_tethering_errored_subtext);
-                    return true;
-                }
-                mUsbTether.setSummary("");
-            }
+            switchusb(newState);
+        	try {
+			Thread.sleep(2000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+            return switchTether(newState);
         } else if (preference == mTetherHelp) {
 
             showDialog(DIALOG_TETHER_HELP);
